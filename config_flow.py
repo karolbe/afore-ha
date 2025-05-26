@@ -28,13 +28,23 @@ from .afore import (
 
 
 async def validate_input(hass: HomeAssistant, *, access_token: str) -> None:
-    """Try using the give system id & api key against the Afore API."""
+    """Try using the given access token against the Afore API."""
     session = async_get_clientsession(hass)
-    afore = Afore(
-        access_token=access_token,
-        session=async_get_clientsession(hass),
+
+    # Create a simple class or named tuple that has a 'data' attribute
+    # This 'data' attribute must be a dictionary containing CONF_ACCESS_TOKEN
+    class DummyConfigEntryForValidation:
+        def __init__(self, token_to_validate: str):
+            self.data = {CONF_ACCESS_TOKEN: token_to_validate}
+
+    dummy_entry = DummyConfigEntryForValidation(access_token)
+
+    afore_client = Afore(
+        hass=hass, # Pass the hass object
+        config_entry=dummy_entry, # Pass the dummy entry
+        session=session
     )
-    await afore.system()
+    await afore_client.system()
 
 
 class AforeFlowHandler(ConfigFlow, domain=DOMAIN):
@@ -117,7 +127,7 @@ class AforeFlowHandler(ConfigFlow, domain=DOMAIN):
             else:
                 self.hass.config_entries.async_update_entry(
                     self.reauth_entry,
-                    data={**self.reauth_entry.data},
+                    data={**self.reauth_entry.data, CONF_ACCESS_TOKEN: user_input[CONF_ACCESS_TOKEN]},
                 )
                 self.hass.async_create_task(
                     self.hass.config_entries.async_reload(self.reauth_entry.entry_id)

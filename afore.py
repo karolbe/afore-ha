@@ -10,6 +10,10 @@ from importlib import metadata
 from typing import Any
 from .models import Status, System
 
+from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_ACCESS_TOKEN
+
 import async_timeout
 from aiohttp.client import ClientError, ClientResponseError, ClientSession
 from aiohttp.hdrs import METH_GET, METH_POST
@@ -42,19 +46,27 @@ class AforeOutputAuthenticationError(Exception):
     pass
 
 
-@dataclass
 class Afore:
-    access_token: str | None
-
-    request_timeout: float = 30.0
-    session: ClientSession | None = None
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        request_timeout: float = 30.0,
+        session: ClientSession | None = None,
+    ) -> None:
+        """Initialize Afore."""
+        self._hass = hass
+        self._config_entry = config_entry
+        self.request_timeout = request_timeout
+        self.session = session
+        self._close_session = session is None
 
     async def _request(
         self,
         uri: str,
         *,
-        params: params,
-        jsonData: jsonData,
+        params: Any,
+        jsonData: Any,
         method: str = METH_POST,
         data: dict[str, Any] | None = None,
     ) -> str:
@@ -62,12 +74,12 @@ class Afore:
         if params is not None:
             url = url.with_query(params)
 
-        self.access_token = "" # TODO add getting the token from the addon config
+        access_token = self._config_entry.data.get(CONF_ACCESS_TOKEN)
 
         headers = {
             "Accept": "application/json, text/plain, */*",
             "User-Agent": f"Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/117.0",
-            "Authorization": "Bearer " + self.access_token,
+            "Authorization": "Bearer " + access_token,
             "Accept-Language": "en-US,en;q=0.7,pl;q=0.3",
             "Content-Type": "application/json;charset=UTF-8",
             "Accept-Encoding": "gzip, deflate",
@@ -120,8 +132,9 @@ class Afore:
             )
         )
         try:
+            access_token = self._config_entry.data.get(CONF_ACCESS_TOKEN)
             decoded_token = jwt.decode(
-                self.access_token, options={"verify_signature": False}
+                access_token, options={"verify_signature": False}
             )
             date = datetime.fromtimestamp(decoded_token["exp"])
             data["data"][0]["expirationDate"] = date
@@ -144,11 +157,12 @@ class Afore:
                 params="order.direction=DESC&order.property=id&page=1&size=20",
             )
         )
-        try:                                                                   
-            decoded_token = jwt.decode(                                        
-                self.access_token, options={"verify_signature": False}         
-            )                                                                  
-            date = datetime.fromtimestamp(decoded_token["exp"])                
+        try:
+            access_token = self._config_entry.data.get(CONF_ACCESS_TOKEN)
+            decoded_token = jwt.decode(
+                access_token, options={"verify_signature": False}
+            )
+            date = datetime.fromtimestamp(decoded_token["exp"])
             data["data"][0]["expirationDate"] = date                           
             systemData = System(**data["data"][0])                             
             systemData.expirationDate = date                                               

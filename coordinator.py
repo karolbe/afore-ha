@@ -23,8 +23,9 @@ class AforeDataUpdateCoordinator(DataUpdateCoordinator[Status]):
         """Initialize the Afore coordinator."""
         self.config_entry = entry
         self.Afore = Afore(
-            access_token=entry.data[CONF_ACCESS_TOKEN],
-            session=async_get_clientsession(hass),
+            hass=hass,
+            config_entry=self.config_entry,
+            session=async_get_clientsession(hass)
         )
 
         super().__init__(hass, LOGGER, name=DOMAIN, update_interval=SCAN_INTERVAL)
