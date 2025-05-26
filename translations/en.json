@@ -1,0 +1,47 @@
+{
+    "config": {
+        "abort": {
+            "already_configured": "Device is already configured",
+            "reauth_successful": "Re-authentication was successful"
+        },
+        "error": {
+            "cannot_connect": "Failed to connect",
+            "invalid_auth": "Invalid authentication"
+        },
+        "step": {
+            "reauth_confirm": {
+                "data": {
+                    "api_token": "API token"
+                },
+                "description": "To re-authenticate with Afore you'll need to get the API key at {account_url}."
+            },
+            "user": {
+                "data": {
+                    "api_token": "API token",
+                    "password": "Password",
+                    "username": "Username"
+                },
+                "description": "To authenticate with Afore you'll need to provide login credentials or access_token valid for {account_url}.\n\n"
+            }
+        }
+    },
+    "entity": {
+        "sensor": {
+            "generation_month": {
+                "name": "This Month Energy Generation"
+            },
+            "generation_power": {
+                "name": "Current Energy Generation"
+            },
+            "generation_total": {
+                "name": "Total Energy Generation"
+            },
+            "generation_value": {
+                "name": "Today's Energy Generation"
+            },
+            "generation_year": {
+                "name": "This Year Energy Generation"
+            }
+        }
+    }
+}

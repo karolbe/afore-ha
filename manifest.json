@@ -1,0 +1,10 @@
+{
+  "domain": "afore3",
+  "name": "Afore3",
+  "codeowners": ["@karolbe"],
+  "config_flow": true,
+  "documentation": "https://www.home-assistant.io/integrations/afore",
+  "iot_class": "cloud_polling",
+  "requirements": ["pydantic-core", "pydantic"],
+  "version": "1.0.0"
+}

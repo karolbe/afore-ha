@@ -1,0 +1,45 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "To authenticate with Afore you'll need to provide an access_token valid for {account_url}.\n\n",
+        "data": {
+          "access_token": "Access Token"
+        }
+      },
+      "reauth_confirm": {
+        "description": "To re-authenticate with Afore you'll need to get the API key at {account_url}.",
+        "data": {
+          "api_token": "[%key:common::config_flow::data::api_token%]"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]"
+    },
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "generation_power": {
+        "name": "Current Energy Generation"
+      },
+      "generation_total": {
+        "name": "Total Energy Generation"
+      },
+      "generation_year": {
+        "name": "This Year Energy Generation"
+      },
+      "generation_month": {
+        "name": "This Month Energy Generation"
+      },
+      "generation_value": {
+        "name": "Today's Energy Generation"
+      }
+    }
+  }
+}
