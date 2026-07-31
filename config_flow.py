@@ -17,7 +17,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import DOMAIN, LOGGER
+from .const import DOMAIN, LOGGER, CONF_REFRESH_TOKEN
 from .afore import (
     AforeNoDataError,
     AforeAuthenticationError,
@@ -27,22 +27,27 @@ from .afore import (
 )
 
 
-async def validate_input(hass: HomeAssistant, *, access_token: str) -> None:
-    """Try using the given access token against the Afore API."""
+async def validate_input(
+    hass: HomeAssistant, *, access_token: str, refresh_token: str
+) -> None:
+    """Try using the given tokens against the Afore API."""
     session = async_get_clientsession(hass)
 
-    # Create a simple class or named tuple that has a 'data' attribute
-    # This 'data' attribute must be a dictionary containing CONF_ACCESS_TOKEN
+    # Minimal stand-in config entry for validation. It carries both tokens so the
+    # client can authenticate; a fresh access token means no refresh is attempted.
     class DummyConfigEntryForValidation:
-        def __init__(self, token_to_validate: str):
-            self.data = {CONF_ACCESS_TOKEN: token_to_validate}
+        def __init__(self, access: str, refresh: str):
+            self.data = {
+                CONF_ACCESS_TOKEN: access,
+                CONF_REFRESH_TOKEN: refresh,
+            }
 
-    dummy_entry = DummyConfigEntryForValidation(access_token)
+    dummy_entry = DummyConfigEntryForValidation(access_token, refresh_token)
 
     afore_client = Afore(
-        hass=hass, # Pass the hass object
-        config_entry=dummy_entry, # Pass the dummy entry
-        session=session
+        hass=hass,
+        config_entry=dummy_entry,
+        session=session,
     )
     await afore_client.system()
 
@@ -64,31 +69,43 @@ class AforeFlowHandler(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 await validate_input(
-                    self.hass, access_token=user_input[CONF_ACCESS_TOKEN]
+                    self.hass,
+                    access_token=user_input[CONF_ACCESS_TOKEN],
+                    refresh_token=user_input[CONF_REFRESH_TOKEN],
                 )
             except AforeOutputAuthenticationError:
+                errors["base"] = "invalid_auth"
+            except AforeAuthenticationError:
                 errors["base"] = "invalid_auth"
             except AforeError:
                 LOGGER.exception("Cannot connect to Afore")
                 errors["base"] = "cannot_connect"
             else:
-                await self.async_set_unique_id(str(user_input[CONF_ACCESS_TOKEN]))
+                await self.async_set_unique_id(str(user_input[CONF_REFRESH_TOKEN]))
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
                     title="Afore Inverter",
-                    data={CONF_ACCESS_TOKEN: user_input[CONF_ACCESS_TOKEN]},
+                    data={
+                        CONF_ACCESS_TOKEN: user_input[CONF_ACCESS_TOKEN],
+                        CONF_REFRESH_TOKEN: user_input[CONF_REFRESH_TOKEN],
+                    },
                 )
         else:
             user_input = {}
 
         return self.async_show_form(
             step_id="user",
-            description_placeholders={"account_url": "https://afore.org/account.jsp"},
+            description_placeholders={"account_url": "https://hom.aforenergy.com"},
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        CONF_ACCESS_TOKEN, default=user_input.get(CONF_ACCESS_TOKEN, "")
-                    ): str
+                        CONF_ACCESS_TOKEN,
+                        default=user_input.get(CONF_ACCESS_TOKEN, ""),
+                    ): str,
+                    vol.Required(
+                        CONF_REFRESH_TOKEN,
+                        default=user_input.get(CONF_REFRESH_TOKEN, ""),
+                    ): str,
                 }
             ),
             errors=errors,
@@ -112,13 +129,19 @@ class AforeFlowHandler(ConfigFlow, domain=DOMAIN):
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle re-authentication with Afore."""
+        """Handle re-authentication with Afore.
+
+        Only reached when the refresh token itself has expired (~every 6 months),
+        so ask for a fresh access token AND refresh token from a new login.
+        """
         errors = {}
 
         if user_input is not None and self.reauth_entry:
             try:
                 await validate_input(
-                    self.hass, access_token=user_input[CONF_ACCESS_TOKEN]
+                    self.hass,
+                    access_token=user_input[CONF_ACCESS_TOKEN],
+                    refresh_token=user_input[CONF_REFRESH_TOKEN],
                 )
             except AforeAuthenticationError:
                 errors["base"] = "invalid_auth"
@@ -127,7 +150,11 @@ class AforeFlowHandler(ConfigFlow, domain=DOMAIN):
             else:
                 self.hass.config_entries.async_update_entry(
                     self.reauth_entry,
-                    data={**self.reauth_entry.data, CONF_ACCESS_TOKEN: user_input[CONF_ACCESS_TOKEN]},
+                    data={
+                        **self.reauth_entry.data,
+                        CONF_ACCESS_TOKEN: user_input[CONF_ACCESS_TOKEN],
+                        CONF_REFRESH_TOKEN: user_input[CONF_REFRESH_TOKEN],
+                    },
                 )
                 self.hass.async_create_task(
                     self.hass.config_entries.async_reload(self.reauth_entry.entry_id)
@@ -136,10 +163,13 @@ class AforeFlowHandler(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reauth_confirm",
-            description_placeholders={
-                "account_url": "https://pvoutput.org/account.jsp"
-            },
-            data_schema=vol.Schema({vol.Required(CONF_ACCESS_TOKEN): str}),
+            description_placeholders={"account_url": "https://hom.aforenergy.com"},
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_ACCESS_TOKEN): str,
+                    vol.Required(CONF_REFRESH_TOKEN): str,
+                }
+            ),
             errors=errors,
         )
 
@@ -148,16 +178,14 @@ def _get_data_schema(
     hass: HomeAssistant, config_entry: config_entries.ConfigEntry | None = None
 ) -> vol.Schema:
     """Get a schema with default values."""
-    if config_entry is None or config_entry.data.get(CONF_ACCESS_TOKEN, False):
-        return vol.Schema(
-            {
-                vol.Required(CONF_ACCESS_TOKEN): str,
-            }
-        )
+    defaults = config_entry.data if config_entry else {}
     return vol.Schema(
         {
             vol.Required(
-                CONF_ACCESS_TOKEN, default=config_entry.data.get(CONF_ACCESS_TOKEN)
+                CONF_ACCESS_TOKEN, default=defaults.get(CONF_ACCESS_TOKEN, "")
+            ): str,
+            vol.Required(
+                CONF_REFRESH_TOKEN, default=defaults.get(CONF_REFRESH_TOKEN, "")
             ): str,
         }
     )

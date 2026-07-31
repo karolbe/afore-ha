@@ -11,17 +11,17 @@
         "step": {
             "reauth_confirm": {
                 "data": {
-                    "api_token": "API token"
+                    "access_token": "Access Token",
+                    "refresh_token": "Refresh Token"
                 },
-                "description": "To re-authenticate with Afore you'll need to get the API key at {account_url}."
+                "description": "The Afore refresh token has expired. Log in again at {account_url} and paste a fresh access token and refresh token."
             },
             "user": {
                 "data": {
-                    "api_token": "API token",
-                    "password": "Password",
-                    "username": "Username"
+                    "access_token": "Access Token",
+                    "refresh_token": "Refresh Token"
                 },
-                "description": "To authenticate with Afore you'll need to provide login credentials or access_token valid for {account_url}.\n\n"
+                "description": "Log in at {account_url} with DevTools open, then paste the access token (short-lived) and the refresh token (valid ~6 months). The access token renews automatically; you only repeat this when the refresh token expires.\n\n"
             }
         }
     },
