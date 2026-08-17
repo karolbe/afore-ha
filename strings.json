@@ -2,16 +2,14 @@
   "config": {
     "step": {
       "user": {
-        "description": "Log in at {account_url} with DevTools open, then paste the access token (short-lived) and the refresh token (valid ~6 months). The access token renews automatically; you only repeat this when the refresh token expires.\n\n",
+        "description": "Log in at {account_url} with DevTools open and copy `refresh_token` from the /oauth2-s/oauth/token response (valid ~6 months). The short-lived access token is minted from it automatically; you only repeat this when the refresh token expires.",
         "data": {
-          "access_token": "Access Token",
           "refresh_token": "Refresh Token"
         }
       },
       "reauth_confirm": {
-        "description": "The Afore refresh token has expired. Log in again at {account_url} and paste a fresh access token and refresh token.",
+        "description": "The Afore refresh token has expired. Log in again at {account_url} and paste a fresh `refresh_token` from the /oauth2-s/oauth/token response.",
         "data": {
-          "access_token": "Access Token",
           "refresh_token": "Refresh Token"
         }
       }

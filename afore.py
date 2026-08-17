@@ -97,6 +97,14 @@ class Afore:
         data = {**self._config_entry.data, CONF_ACCESS_TOKEN: access_token}
         if refresh_token:
             data[CONF_REFRESH_TOKEN] = refresh_token
+
+        # The config flow tries credentials against a stand-in rather than a
+        # registered entry; there is nothing for HA to update in that case, so
+        # hand the tokens back through its `data` mapping instead.
+        if not isinstance(self._config_entry, ConfigEntry):
+            self._config_entry.data = data
+            return
+
         self._hass.config_entries.async_update_entry(self._config_entry, data=data)
 
     async def _async_refresh_token(self) -> None:
@@ -256,7 +264,8 @@ class Afore:
                     "Error occurred while communicating with the Afore API"
                 ) from exception
 
-    async def status(self) -> Status:
+    async def _station(self) -> dict[str, Any]:
+        """Fetch the raw station record, stamped with the access-token expiry."""
         data = json.loads(
             await self._request(
                 "/maintain-s/operating/station/search",
@@ -267,49 +276,20 @@ class Afore:
         )
         if not data.get("data"):
             raise AforeNoDataError("Afore returned no stations for this account")
-        try:
-            access_token = self._config_entry.data.get(CONF_ACCESS_TOKEN)
-            decoded_token = jwt.decode(
-                access_token, options={"verify_signature": False}
-            )
-            date = datetime.fromtimestamp(decoded_token["exp"])
-            data["data"][0]["expirationDate"] = date
-            systemData = Status(**data["data"][0])
-            systemData.expirationDate = date
-        except jwt.ExpiredSignatureError:
-            _LOGGER.warning("Token has expired")
-        except jwt.InvalidTokenError:
-            _LOGGER.warning("Invalid token")
 
-        self.station_id = systemData.id
-        return systemData
+        station = data["data"][0]
+        station["expirationDate"] = self._token_expiry(
+            self._config_entry.data.get(CONF_ACCESS_TOKEN)
+        )
+        return station
+
+    async def status(self) -> Status:
+        status = Status(**await self._station())
+        self.station_id = status.id
+        return status
 
     async def system(self) -> System:
-        data = json.loads(
-            await self._request(
-                "/maintain-s/operating/station/search",
-                method=METH_POST,
-                jsonData={},
-                params="order.direction=DESC&order.property=id&page=1&size=20",
-            )
-        )
-        if not data.get("data"):
-            raise AforeNoDataError("Afore returned no stations for this account")
-        try:
-            access_token = self._config_entry.data.get(CONF_ACCESS_TOKEN)
-            decoded_token = jwt.decode(
-                access_token, options={"verify_signature": False}
-            )
-            date = datetime.fromtimestamp(decoded_token["exp"])
-            data["data"][0]["expirationDate"] = date
-            systemData = System(**data["data"][0])
-            systemData.expirationDate = date
-        except jwt.ExpiredSignatureError:
-            _LOGGER.warning("Token has expired")
-        except jwt.InvalidTokenError:
-            _LOGGER.warning("Invalid token")
-
-        return systemData
+        return System(**await self._station())
 
     async def close(self) -> None:
         """Close open client session."""

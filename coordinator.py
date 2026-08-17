@@ -11,7 +11,13 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import DOMAIN, LOGGER, SCAN_INTERVAL
 from .models import Status
 
-from .afore import AforeNoDataError, AforeAuthenticationError, Afore
+from .afore import (
+    Afore,
+    AforeAuthenticationError,
+    AforeConnectionError,
+    AforeError,
+    AforeNoDataError,
+)
 
 
 class AforeDataUpdateCoordinator(DataUpdateCoordinator[Status]):
@@ -38,3 +44,5 @@ class AforeDataUpdateCoordinator(DataUpdateCoordinator[Status]):
             raise UpdateFailed("Afore has no data available") from err
         except AforeAuthenticationError as err:
             raise ConfigEntryAuthFailed from err
+        except (AforeConnectionError, AforeError) as err:
+            raise UpdateFailed(str(err)) from err

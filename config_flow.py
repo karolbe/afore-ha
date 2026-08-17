@@ -25,31 +25,38 @@ from .afore import (
     AforeError,
     Afore,
 )
+from .models import System
+
+
+class _ValidationEntry:
+    """Minimal stand-in config entry used to try a refresh token before storing it.
+
+    The client mints an access token through the same `data` mapping a real
+    entry exposes, so whatever it leaves behind is what we persist.
+    """
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        self.data = data
 
 
 async def validate_input(
-    hass: HomeAssistant, *, access_token: str, refresh_token: str
-) -> None:
-    """Try using the given tokens against the Afore API."""
-    session = async_get_clientsession(hass)
+    hass: HomeAssistant, *, refresh_token: str
+) -> tuple[dict[str, Any], System]:
+    """Try the given refresh token against the Afore API.
 
-    # Minimal stand-in config entry for validation. It carries both tokens so the
-    # client can authenticate; a fresh access token means no refresh is attempted.
-    class DummyConfigEntryForValidation:
-        def __init__(self, access: str, refresh: str):
-            self.data = {
-                CONF_ACCESS_TOKEN: access,
-                CONF_REFRESH_TOKEN: refresh,
-            }
-
-    dummy_entry = DummyConfigEntryForValidation(access_token, refresh_token)
+    Returns the entry data to store (including the freshly minted access token)
+    along with the system it belongs to.
+    """
+    entry = _ValidationEntry({CONF_REFRESH_TOKEN: refresh_token})
 
     afore_client = Afore(
         hass=hass,
-        config_entry=dummy_entry,
-        session=session,
+        config_entry=entry,
+        session=async_get_clientsession(hass),
     )
-    await afore_client.system()
+    system = await afore_client.system()
+
+    return entry.data, system
 
 
 class AforeFlowHandler(ConfigFlow, domain=DOMAIN):
@@ -68,27 +75,21 @@ class AforeFlowHandler(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             try:
-                await validate_input(
-                    self.hass,
-                    access_token=user_input[CONF_ACCESS_TOKEN],
-                    refresh_token=user_input[CONF_REFRESH_TOKEN],
+                data, system = await validate_input(
+                    self.hass, refresh_token=user_input[CONF_REFRESH_TOKEN]
                 )
-            except AforeOutputAuthenticationError:
-                errors["base"] = "invalid_auth"
-            except AforeAuthenticationError:
+            except (AforeAuthenticationError, AforeOutputAuthenticationError):
                 errors["base"] = "invalid_auth"
             except AforeError:
                 LOGGER.exception("Cannot connect to Afore")
                 errors["base"] = "cannot_connect"
             else:
-                await self.async_set_unique_id(str(user_input[CONF_REFRESH_TOKEN]))
+                # Key on the station, not on a token that rotates daily.
+                await self.async_set_unique_id(str(system.id))
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
-                    title="Afore Inverter",
-                    data={
-                        CONF_ACCESS_TOKEN: user_input[CONF_ACCESS_TOKEN],
-                        CONF_REFRESH_TOKEN: user_input[CONF_REFRESH_TOKEN],
-                    },
+                    title=system.name or "Afore Inverter",
+                    data=data,
                 )
         else:
             user_input = {}
@@ -98,10 +99,6 @@ class AforeFlowHandler(ConfigFlow, domain=DOMAIN):
             description_placeholders={"account_url": "https://hom.aforenergy.com"},
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_ACCESS_TOKEN,
-                        default=user_input.get(CONF_ACCESS_TOKEN, ""),
-                    ): str,
                     vol.Required(
                         CONF_REFRESH_TOKEN,
                         default=user_input.get(CONF_REFRESH_TOKEN, ""),
@@ -132,29 +129,23 @@ class AforeFlowHandler(ConfigFlow, domain=DOMAIN):
         """Handle re-authentication with Afore.
 
         Only reached when the refresh token itself has expired (~every 6 months),
-        so ask for a fresh access token AND refresh token from a new login.
+        so ask for a fresh refresh token from a new portal login.
         """
         errors = {}
 
         if user_input is not None and self.reauth_entry:
             try:
-                await validate_input(
-                    self.hass,
-                    access_token=user_input[CONF_ACCESS_TOKEN],
-                    refresh_token=user_input[CONF_REFRESH_TOKEN],
+                data, _ = await validate_input(
+                    self.hass, refresh_token=user_input[CONF_REFRESH_TOKEN]
                 )
-            except AforeAuthenticationError:
+            except (AforeAuthenticationError, AforeOutputAuthenticationError):
                 errors["base"] = "invalid_auth"
             except AforeError:
                 errors["base"] = "cannot_connect"
             else:
                 self.hass.config_entries.async_update_entry(
                     self.reauth_entry,
-                    data={
-                        **self.reauth_entry.data,
-                        CONF_ACCESS_TOKEN: user_input[CONF_ACCESS_TOKEN],
-                        CONF_REFRESH_TOKEN: user_input[CONF_REFRESH_TOKEN],
-                    },
+                    data={**self.reauth_entry.data, **data},
                 )
                 self.hass.async_create_task(
                     self.hass.config_entries.async_reload(self.reauth_entry.entry_id)
@@ -164,12 +155,7 @@ class AforeFlowHandler(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reauth_confirm",
             description_placeholders={"account_url": "https://hom.aforenergy.com"},
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_ACCESS_TOKEN): str,
-                    vol.Required(CONF_REFRESH_TOKEN): str,
-                }
-            ),
+            data_schema=vol.Schema({vol.Required(CONF_REFRESH_TOKEN): str}),
             errors=errors,
         )
 
@@ -181,9 +167,6 @@ def _get_data_schema(
     defaults = config_entry.data if config_entry else {}
     return vol.Schema(
         {
-            vol.Required(
-                CONF_ACCESS_TOKEN, default=defaults.get(CONF_ACCESS_TOKEN, "")
-            ): str,
             vol.Required(
                 CONF_REFRESH_TOKEN, default=defaults.get(CONF_REFRESH_TOKEN, "")
             ): str,
@@ -200,13 +183,16 @@ class AforeOptionsFlowHandler(OptionsFlowWithConfigEntry):
         """Configure options for Afore."""
 
         if user_input is not None:
-            # Update config entry with data from user input
-            self.hass.config_entries.async_update_entry(
-                self._config_entry, data=user_input
-            )
-            return self.async_create_entry(
-                title=self._config_entry.title, data=user_input
-            )
+            data = {**self._config_entry.data, **user_input}
+            # An access token belongs to the refresh token that minted it, so
+            # drop it and let the client mint a fresh one on the next update.
+            if user_input[CONF_REFRESH_TOKEN] != self._config_entry.data.get(
+                CONF_REFRESH_TOKEN
+            ):
+                data.pop(CONF_ACCESS_TOKEN, None)
+
+            self.hass.config_entries.async_update_entry(self._config_entry, data=data)
+            return self.async_create_entry(title=self._config_entry.title, data={})
 
         return self.async_show_form(
             step_id="init",

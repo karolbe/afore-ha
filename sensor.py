@@ -48,7 +48,7 @@ SENSORS: tuple[AforeSensorEntityDescription, ...] = (
         key="token_expiration",
         name="Token Expiration",
         translation_key="token_expiration",
-        device_class=SensorDeviceClass.DATE,
+        device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=lambda status: status.expirationDate,
     ),
     AforeSensorEntityDescription(
